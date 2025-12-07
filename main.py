@@ -5,6 +5,7 @@ import os
 
 app = FastAPI()
 
+# CORS enabled because Flask frontend will call proxy
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -12,14 +13,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Load Tavus credentials
 TAVUS_API_KEY = os.getenv("TAVUS_API_KEY")
 REPLICA_ID = os.getenv("REPLICA_ID")
+
 TAVUS_API = "https://api.tavus.io"
 
 
 @app.get("/")
 def home():
-    return {"status": "Proxy active", "has_routes": True}
+    return {
+        "status": "Proxy active",
+        "has_routes": True,
+        "repl_loaded": bool(REPLICA_ID),
+        "api_loaded": bool(TAVUS_API_KEY)
+    }
 
 
 @app.post("/videos")
@@ -27,27 +35,45 @@ async def create_video(request: Request):
     payload = await request.json()
     payload["replica_id"] = REPLICA_ID
 
+    print("\n### CREATE VIDEO PAYLOAD:", payload)
+
     async with httpx.AsyncClient() as client:
-        res = await client.post(
+        response = await client.post(
             f"{TAVUS_API}/videos",
             json=payload,
             headers={
                 "x-api-key": TAVUS_API_KEY,
                 "Content-Type": "application/json",
             },
-            timeout=40,
+            timeout=60,
         )
-    return res.json()
+
+    print("### Tavus Response Code:", response.status_code)
+    print("### Tavus Response:", response.text)
+
+    try:
+        return response.json()
+    except:
+        return {"error": "Invalid response from Tavus", "raw": response.text}
 
 
 @app.get("/videos/{video_id}")
 async def get_video(video_id: str):
+    print(f"\n### POLLING VIDEO ID: {video_id}")
+
     async with httpx.AsyncClient() as client:
-        res = await client.get(
+        response = await client.get(
             f"{TAVUS_API}/videos/{video_id}",
             headers={"x-api-key": TAVUS_API_KEY},
-            timeout=40,
+            timeout=60,
         )
-    return res.json()
+
+    print("### Tavus Poll Response Code:", response.status_code)
+    print("### Tavus Poll Response:", response.text)
+
+    try:
+        return response.json()
+    except:
+        return {"error": "Invalid response while polling", "raw": response.text}
 
     
